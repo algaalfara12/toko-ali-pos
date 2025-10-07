@@ -1,0 +1,25 @@
+{
+  "name": "toko-ali-pos",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "seed": "prisma db seed"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2",
+    "bcryptjs": "^3.0.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.5.2",
+    "prisma": "^6.16.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}

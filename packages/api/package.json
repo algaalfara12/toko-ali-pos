@@ -1,0 +1,21 @@
+{
+  "name": "@toko-ali/api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "prisma": "prisma",
+    "seed": "prisma db seed"
+  },
+  "dependencies": {
+    "@fastify/jwt": "^10.0.0",
+    "@prisma/client": "^6.16.2",
+    "bcryptjs": "^2.4.3",
+    "fastify": "^5.6.1",
+    "fastify-plugin": "^5.1.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "ts-node-dev": "^2.0.0"
+  }
+}

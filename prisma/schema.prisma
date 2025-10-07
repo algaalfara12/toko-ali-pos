@@ -1,0 +1,325 @@
+// =====================
+// Prisma Client
+// =====================
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =====================
+// Datasource
+// =====================
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =====================
+// User & Role sederhana
+// =====================
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  role      String
+  createdAt DateTime @default(now())
+
+  sales     Sale[]
+  saleReturns SaleReturn[]
+
+}
+
+// =====================
+// Lokasi Stok
+// =====================
+model Location {
+  id         String      @id @default(uuid())
+  code       String      @unique // GUDANG, ETALASE
+  name       String
+
+  stockMoves StockMove[]
+  purchases  Purchase[]
+  saleReturns SaleReturn[]
+
+}
+
+// =====================
+// Produk & Master Data
+// =====================
+model Product {
+  id            String         @id @default(uuid())
+  sku           String         @unique
+  name          String
+  baseUom       String         // contoh: gram
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // relasi anak
+  uoms          ProductUom[]
+  barcodes      Barcode[]
+  prices        PriceList[]
+
+  // back-relations
+  stockMoves    StockMove[]
+  saleLines     SaleLine[]
+  repackInputs  RepackInput[]
+  repackOutputs RepackOutput[]
+  purchaseLines PurchaseLine[]
+  saleReturnLines SaleReturnLine[]
+}
+
+model ProductUom {
+  id        String  @id @default(uuid())
+  productId String
+  uom       String  // contoh: karung_50kg, bungkus_1kg, bungkus_500g
+  toBase    Int     // konversi ke baseUom (mis. 500g => 500)
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@unique([productId, uom])
+}
+
+model Barcode {
+  id        String  @id @default(uuid())
+  productId String
+  uom       String
+  code      String  @unique
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@unique([productId, uom])
+}
+
+model PriceList {
+  id        String   @id @default(uuid())
+  productId String
+  uom       String
+  price     Decimal
+  active    Boolean  @default(true)
+  product   Product  @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+}
+
+// =====================
+// Ledger Stok (append-only)
+// =====================
+model StockMove {
+  id          String      @id @default(uuid())
+  productId   String
+  locationId  String
+  qty         Decimal     // positif = IN, negatif = OUT/SALE
+  uom         String      // uom saat move terjadi
+  type        StockMoveType
+  refId       String?
+  createdAt   DateTime    @default(now())
+
+  product     Product     @relation(fields: [productId], references: [id])
+  location    Location    @relation(fields: [locationId], references: [id])
+
+  @@index([productId, locationId])
+  @@index([createdAt])
+}
+
+enum StockMoveType {
+  IN
+  SALE
+  RETURN
+  REPACK_IN
+  REPACK_OUT
+  TRANSFER
+  ADJUSTMENT
+  HOLD
+}
+
+// =====================
+// Penjualan
+// =====================
+model Sale {
+  id           String    @id @default(uuid())
+  number       String    @unique
+  cashierId    String
+  customerId   String?
+  method       PaymentMethod
+  subtotal     Decimal
+  discount     Decimal @default(0)
+  tax          Decimal @default(0)
+  total        Decimal
+  paid         Decimal
+  change       Decimal @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  cashier      User      @relation(fields: [cashierId], references: [id])
+  lines        SaleLine[]
+  payments     Payment[]
+  saleReturns SaleReturn[]
+}
+
+enum PaymentMethod {
+  CASH
+  NON_CASH
+}
+
+model SaleLine {
+  id        String   @id @default(uuid())
+  saleId    String
+  productId String
+  uom       String
+  qty       Decimal
+  price     Decimal // harga jual per unit saat itu
+  discount  Decimal @default(0)
+  subtotal  Decimal // (qty*price - discount)
+
+  sale      Sale     @relation(fields: [saleId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+}
+
+model Payment {
+  id        String   @id @default(uuid())
+  saleId    String
+  method    PaymentMethod
+  amount    Decimal
+  ref       String?
+  createdAt DateTime @default(now())
+
+  sale      Sale     @relation(fields: [saleId], references: [id])
+}
+
+// =====================
+// Repack (produksi internal, pecah kemasan)
+// =====================
+model Repack {
+  id        String         @id @default(uuid())
+  number    String         @unique
+  notes     String?
+  extraCost Decimal        @default(0)
+  createdAt DateTime       @default(now())
+
+  inputs    RepackInput[]
+  outputs   RepackOutput[]
+}
+
+model RepackInput {
+  id         String   @id @default(uuid())
+  repackId   String
+  productId  String
+  uom        String
+  qty        Decimal
+
+  repack     Repack   @relation(fields: [repackId], references: [id])
+  product    Product  @relation(fields: [productId], references: [id])
+}
+
+model RepackOutput {
+  id         String   @id @default(uuid())
+  repackId   String
+  productId  String
+  uom        String
+  qty        Decimal
+  hpp        Decimal  @default(0)
+
+  repack     Repack   @relation(fields: [repackId], references: [id])
+  product    Product  @relation(fields: [productId], references: [id])
+}
+
+// =====================
+// Pembelian (Purchase)
+// =====================
+model Supplier {
+  id        String     @id @default(uuid())
+  name      String
+  phone     String?    @unique
+  address   String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  purchases Purchase[]
+}
+
+model Purchase {
+  id          String      @id @default(uuid())
+  number      String      @unique
+  supplierId  String?
+  locationId  String
+  subtotal    Decimal
+  discount    Decimal     @default(0)
+  total       Decimal
+  createdAt   DateTime    @default(now())
+
+  supplier    Supplier?   @relation(fields: [supplierId], references: [id])
+  location    Location    @relation(fields: [locationId], references: [id])
+  lines       PurchaseLine[]
+
+  @@index([createdAt])
+}
+
+model PurchaseLine {
+  id          String    @id @default(uuid())
+  purchaseId  String
+  productId   String
+  uom         String
+  qty         Decimal
+  buyPrice    Decimal    // harga beli per unit sesuai UOM baris ini
+  sellPrice   Decimal?   // opsional: harga jual yang ingin di-set utk UOM ini
+  subtotal    Decimal    // qty * buyPrice
+
+  purchase    Purchase   @relation(fields: [purchaseId], references: [id])
+  product     Product    @relation(fields: [productId], references: [id])
+
+  @@index([purchaseId])
+  @@index([productId])
+}
+
+// =====================
+// POS Hold (parkir transaksi)
+// =====================
+model PosHold {
+  id            String   @id @default(uuid())
+  number        String   @unique          // HOLD-YYYYMMDD-<kasir>-####
+  cashierId     String
+  cashierCode   String
+  customerId    String?
+  method        PaymentMethod
+  discountTotal Decimal   @default(0)
+  items         Json
+  payments      Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// =====================
+// Retur Penjualan
+// =====================
+model SaleReturn {
+  id          String      @id @default(uuid())
+  number      String      @unique
+  saleId      String
+  cashierId   String
+  locationId  String
+  reason      String?
+  subtotal    Decimal     @default(0)
+  createdAt   DateTime    @default(now())
+
+  sale        Sale        @relation(fields: [saleId], references: [id])
+  cashier     User        @relation(fields: [cashierId], references: [id])
+  location    Location    @relation(fields: [locationId], references: [id])
+  lines       SaleReturnLine[]
+
+  @@index([saleId])
+  @@index([createdAt])
+}
+
+model SaleReturnLine {
+  id         String       @id @default(uuid())
+  returnId   String
+  productId  String
+  uom        String
+  qty        Decimal
+  price      Decimal
+  subtotal   Decimal
+
+  ret        SaleReturn   @relation(fields: [returnId], references: [id])
+  product    Product      @relation(fields: [productId], references: [id])
+
+  @@index([returnId])
+  @@index([productId])
+}
