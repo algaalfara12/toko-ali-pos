@@ -1,37 +1,26 @@
-import Fastify from 'fastify';
-import authPlugin from './plugins/auth';     
-import productRoutes from './routes/products';
-import stockRoutes from './routes/stock';
-import salesRoutes from './routes/sales';   // ← tambah
-import reportsRoutes from './routes/reports';
-import repackRoutes from './routes/repack';   // ← tambah import
-import purchasesRoutes from './routes/purchases'; // <-- tambah ini
-import posRoutes from './routes/pos';
-//import usersRoutes from './routes/users';
-import posHoldRoutes from './routes/posHold';
-import posReturnRoutes from './routes/posReturn';
-import reportsTransfersRoutes from './routes/reportsTransfers';
-import authRoutes from './routes/auth';   
- 
-const app = Fastify({ logger: true });
+// packages/api/src/server.ts
+import dotenv from "dotenv";
+dotenv.config();
 
-app.get('/health', async () => ({ ok: true }));
+import { loadEnv } from "./config/env";
+import { buildApp } from "./app";
 
-app.register(authPlugin);
-app.register(authRoutes);
-app.register(productRoutes);
-app.register(stockRoutes);
-app.register(salesRoutes);                   // ← daftarkan
-app.register(reportsRoutes);
-app.register(repackRoutes);                   // ← daftar route
-app.register(purchasesRoutes); 
-app.register(posRoutes);
-//app.register(usersRoutes);
-app.register(posHoldRoutes);
-app.register(posReturnRoutes);
-app.register(reportsTransfersRoutes);
+async function main() {
+  const env = loadEnv();
+  const app = await buildApp();
 
+  // (opsional) log status trustProxy saat boot
+  app.log.info({ trustProxy: env.TRUST_PROXY }, "boot trustProxy status");
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
-app.listen({ port: PORT, host: '127.0.0.1' })
-  .catch((err) => { app.log.error(err); process.exit(1); });
+  const PORT = env.PORT ? Number(env.PORT) : 3001;
+  await app
+
+    .listen({ port: PORT, host: "127.0.0.1" })
+    .then(() => app.log.info({ port: PORT }, "API running"))
+    .catch((err) => {
+      app.log.error(err);
+      process.exit(1);
+    });
+}
+
+main();

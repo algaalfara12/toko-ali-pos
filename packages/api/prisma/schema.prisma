@@ -1,0 +1,527 @@
+// =====================
+// Prisma Client
+// =====================
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =====================
+// Datasource
+// =====================
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =====================
+// User & Role sederhana
+// =====================
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  role      String
+  createdAt DateTime @default(now())
+
+  sales       Sale[]
+  saleReturns SaleReturn[]
+}
+
+// =====================
+// Lokasi Stok
+// =====================
+model Location {
+  id        String   @id @default(uuid())
+  code      String   @unique 
+  name      String
+
+  createdAt        DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  deletedAt        DateTime?
+  lastModifiedById String?
+
+  stockMoves  StockMove[]
+  purchases   Purchase[]
+  saleReturns SaleReturn[]
+
+  @@index([updatedAt])
+}
+
+
+// =====================
+// Produk & Master Data
+// =====================
+model Product {
+  id        String   @id @default(uuid())
+  sku       String   @unique
+  name      String
+  baseUom   String 
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deletedAt        DateTime?
+  lastModifiedById String?
+
+  uoms     ProductUom[]
+  barcodes Barcode[]
+  prices   PriceList[]
+
+  stockMoves      StockMove[]
+  saleLines       SaleLine[]
+  repackInputs    RepackInput[]
+  repackOutputs   RepackOutput[]
+  purchaseLines   PurchaseLine[]
+  saleReturnLines SaleReturnLine[]
+
+  @@index([updatedAt])
+}
+
+
+model ProductUom {
+  id        String  @id @default(uuid())
+  productId String
+  uom       String
+  toBase    Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  createdAt        DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  deletedAt        DateTime?
+  lastModifiedById String?
+
+  @@unique([productId, uom])
+  @@index([updatedAt])
+}
+
+
+model Barcode {
+  id        String  @id @default(uuid())
+  productId String
+  uom       String
+  code      String  @unique
+  product   Product @relation(fields: [productId], references: [id])
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+  lastModifiedById String?
+
+  @@unique([productId, uom])
+  @@index([updatedAt])
+}
+
+model PriceList {
+  id        String  @id @default(uuid())
+  productId String
+  uom       String
+  price     Decimal
+  active    Boolean @default(true)
+  product   Product @relation(fields: [productId], references: [id])
+
+  createdAt        DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  deletedAt        DateTime?
+  lastModifiedById String?
+
+  @@index([productId])
+  @@index([productId, uom, active])
+  @@index([updatedAt])
+}
+
+
+// =====================
+// Ledger Stok (append-only)
+// =====================
+model StockMove {
+  id         String        @id @default(uuid())
+  productId  String
+  locationId String
+  qty        Decimal // positif = IN, negatif = OUT/SALE
+  uom        String // uom saat move terjadi
+  type       StockMoveType
+  refId      String?
+  createdAt  DateTime      @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@index([productId, locationId])
+  @@index([createdAt])
+  @@index([productId, locationId, createdAt]) // NEW: percepat laporan saldo per lokasi & produk dalam range
+}
+
+enum StockMoveType {
+  IN
+  SALE
+  RETURN
+  REPACK_IN
+  REPACK_OUT
+  TRANSFER
+  ADJUSTMENT
+  HOLD
+}
+
+// =====================
+// Penjualan
+// =====================
+model Sale {
+  id         String        @id @default(uuid())
+  number     String        @unique
+  cashierId  String
+  customerId String?
+  method     PaymentMethod
+  subtotal   Decimal
+  discount   Decimal       @default(0)
+  tax        Decimal       @default(0)
+  total      Decimal
+  paid       Decimal
+  change     Decimal       @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  cashier     User         @relation(fields: [cashierId], references: [id])
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  lines       SaleLine[]
+  payments    Payment[]
+  saleReturns SaleReturn[]
+
+  @@index([createdAt])
+  @@index([cashierId])
+  @@index([customerId])
+  @@index([createdAt, cashierId]) // NEW: percepat rekap perkasir perhari
+}
+
+enum PaymentMethod {
+  CASH
+  NON_CASH
+}
+
+model SaleLine {
+  id        String  @id @default(uuid())
+  saleId    String
+  productId String
+  uom       String
+  qty       Decimal
+  price     Decimal 
+  discount  Decimal @default(0)
+  subtotal  Decimal // (qty*price - discount)
+
+  sale    Sale    @relation(fields: [saleId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([saleId])     
+  @@index([productId])  
+}
+
+enum PaymentKind {
+  SALE
+  REFUND
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  saleId       String?
+  saleReturnId String?
+  method       PaymentMethod
+  kind         PaymentKind   @default(SALE)
+  amount       Decimal
+  ref          String?
+  createdAt    DateTime      @default(now())
+
+  sale       Sale?       @relation(fields: [saleId], references: [id])
+  saleReturn SaleReturn? @relation(fields: [saleReturnId], references: [id])
+
+  @@index([saleId])
+  @@index([saleReturnId])
+  @@index([method, kind, createdAt])
+  @@index([createdAt])            
+  @@index([kind, saleId])              
+  @@index([kind, saleReturnId])        
+}
+
+// =====================
+// Repack (produksi internal, pecah kemasan)
+// =====================
+model Repack {
+  id        String   @id @default(uuid())
+  number    String   @unique
+  notes     String?
+  extraCost Decimal  @default(0)
+  createdAt DateTime @default(now())
+
+  inputs  RepackInput[]
+  outputs RepackOutput[]
+}
+
+model RepackInput {
+  id        String  @id @default(uuid())
+  repackId  String
+  productId String
+  uom       String
+  qty       Decimal
+
+  repack  Repack  @relation(fields: [repackId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model RepackOutput {
+  id        String  @id @default(uuid())
+  repackId  String
+  productId String
+  uom       String
+  qty       Decimal
+  hpp       Decimal @default(0)
+
+  repack  Repack  @relation(fields: [repackId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+// =====================
+// Pembelian (Purchase)
+// =====================
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String?  @unique
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases Purchase[]
+}
+
+model Purchase {
+  id         String   @id @default(uuid())
+  number     String   @unique
+  supplierId String?
+  locationId String
+  subtotal   Decimal
+  discount   Decimal  @default(0)
+  total      Decimal
+  createdAt  DateTime @default(now())
+
+  supplier Supplier?      @relation(fields: [supplierId], references: [id])
+  location Location       @relation(fields: [locationId], references: [id])
+  lines    PurchaseLine[]
+
+  @@index([createdAt])
+}
+
+model PurchaseLine {
+  id         String   @id @default(uuid())
+  purchaseId String
+  productId  String
+  uom        String
+  qty        Decimal
+  buyPrice   Decimal  // harga beli per unit sesuai UOM baris ini
+  sellPrice  Decimal? // opsional: harga jual yang ingin di-set utk UOM ini
+  subtotal   Decimal  // qty * buyPrice
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@index([purchaseId])
+  @@index([productId])
+}
+
+// =====================
+// POS Hold (parkir transaksi)
+// =====================
+model PosHold {
+  id            String        @id @default(uuid())
+  number        String        @unique // HOLD-YYYYMMDD-<kasir>-####
+  cashierId     String
+  cashierCode   String
+  customerId    String?
+  method        PaymentMethod
+  discountTotal Decimal       @default(0)
+  items         Json
+  payments      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+// =====================
+// Retur Penjualan
+// =====================
+model SaleReturn {
+  id         String   @id @default(uuid())
+  number     String   @unique
+  saleId     String
+  cashierId  String
+  locationId String
+  reason     String?
+  subtotal   Decimal  @default(0)
+  createdAt  DateTime @default(now())
+
+  sale     Sale             @relation(fields: [saleId], references: [id])
+  cashier  User             @relation(fields: [cashierId], references: [id])
+  location Location         @relation(fields: [locationId], references: [id])
+  lines    SaleReturnLine[]
+  payments Payment[]
+
+  @@index([saleId])
+  @@index([createdAt])
+  @@index([createdAt, cashierId, locationId]) // NEW: percepat laporan retur per hari/kasir/lokasi
+}
+
+model SaleReturnLine {
+  id        String  @id @default(uuid())
+  returnId  String
+  productId String
+  uom       String
+  qty       Decimal
+  price     Decimal
+  subtotal  Decimal
+
+  ret     SaleReturn @relation(fields: [returnId], references: [id])
+  product Product    @relation(fields: [productId], references: [id])
+
+  @@index([returnId])
+  @@index([productId])
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  name        String?
+  phone       String?  @unique
+  email       String?  @unique
+  memberCode  String?  @unique
+  joinedAt    DateTime @default(now())
+  isActive    Boolean  @default(true)
+
+  updatedAt DateTime @default(now()) @updatedAt
+  deletedAt        DateTime?
+  lastModifiedById String?
+
+  sales       Sale[]
+
+  @@index([updatedAt])
+}
+
+
+// ============ AUDIT LOG ============
+enum AuditAction {
+  SALE
+  RETURN
+  PURCHASE
+  TRANSFER
+  ADJUSTMENT
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  action         AuditAction
+  actorId        String
+  actorUsername  String
+  entityType     String       
+  entityId       String       
+  refNumber      String?      
+  ip             String?
+  payload        Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([actorId])
+  @@index([entityType])
+  @@index([refNumber])
+}
+
+model CashierClosing {
+  id              String   @id @default(uuid())
+  date            DateTime 
+  cashierId       String
+  cashierUsername String
+
+  salesCash       Decimal   @default(0)
+  salesNonCash    Decimal   @default(0)
+  salesAll        Decimal   @default(0)
+  items           Int       @default(0)
+
+  refundCash      Decimal   @default(0)
+  refundNonCash   Decimal   @default(0)
+  refundAll       Decimal   @default(0)
+
+  nettCash        Decimal   @default(0)
+  nettNonCash     Decimal   @default(0)
+  nettAll         Decimal   @default(0)
+
+  note            String?
+  createdAt       DateTime  @default(now())
+
+  @@unique([cashierId, date]) 
+  @@index([date])
+  @@index([cashierId])
+}
+
+model StoreProfile {
+  id          String   @id @default(uuid())
+  name        String
+  address     String?
+  phone       String?
+  logoUrl     String?   
+  footerNote  String?   
+  timezone    String?   @default("Asia/Jakarta")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model SyncClient {
+  id        String   @id @default(uuid())
+  deviceId  String   @unique
+  name      String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checkpoints SyncCheckpoint[]
+}
+
+model SyncCheckpoint {
+  id        String   @id @default(uuid())
+  clientId  String
+  resource  String
+  since     DateTime?
+  updatedAt DateTime @updatedAt
+
+  client SyncClient @relation(fields: [clientId], references: [id])
+
+  @@unique([clientId, resource])
+  @@index([updatedAt])
+}
+
+model Tombstone {
+  id        String   @id @default(uuid())
+  resource  String
+  entityId  String
+  deletedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([resource, entityId])
+  @@index([deletedAt])
+  @@index([updatedAt])
+}
+
+enum SyncInboundStatus {
+  SUCCESS
+  ERROR
+  DUPLICATE
+}
+
+model SyncInbound {
+  id           String            @id @default(uuid())
+  clientId     String
+  resource     String
+  clientDocId  String
+  serverDocId  String?
+  checksum     String?
+  status       SyncInboundStatus @default(SUCCESS)
+  errorMessage String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([clientId, resource, clientDocId])
+  @@index([createdAt])
+}
